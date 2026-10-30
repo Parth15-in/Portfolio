@@ -1,8 +1,7 @@
 import { Groq } from "groq-sdk";
-import { retrieveRelevantChunks } from "./retriever";
+import { LocalVectorStore } from "./local-vector-store";
 import { getGroqApiKey } from "./groq-client";
 import { validateJobDescriptionText } from "./jd-validator";
-import type { QueryResult } from "./types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -55,33 +54,89 @@ function sanitizeJD(jd: string): string {
 
 // ─── Portfolio knowledge retrieval for JD analysis ───────────────────────────
 
-async function retrievePortfolioForJD(): Promise<string> {
-  const queries = [
-    "technical skills programming languages frameworks",
-    "projects QuizLab Hardware Shop internship experience",
-    "education achievements internship Shakktii AI MongoDB React Node",
-    "REST API backend database PostgreSQL full stack",
-  ];
+function retrievePortfolioForJD(): string {
+  try {
+    const records = LocalVectorStore.getAll();
+    if (records && records.length > 0) {
+      return records
+        .map(
+          (r, i) =>
+            `[Portfolio Chunk ${i + 1}] (${r.metadata.source.toUpperCase()} — ${r.metadata.section}):\n${r.metadata.content}`
+        )
+        .join("\n\n---\n\n");
+    }
+  } catch (err) {
+    console.warn("[retrievePortfolioForJD] LocalVectorStore read warning:", err);
+  }
+  return "";
+}
 
-  const allChunks = new Map<string, QueryResult>();
+// ─── Robust JSON Parser with Auto-Repair ───────────────────────────────────────
 
-  for (const q of queries) {
-    const results = await retrieveRelevantChunks(q, [], 6, 0.1);
-    for (const r of results) {
-      if (!allChunks.has(r.chunk.id)) {
-        allChunks.set(r.chunk.id, r);
+function robustJsonParse(rawText: string): any {
+  if (!rawText || typeof rawText !== "string") {
+    throw new Error("Empty response received from AI.");
+  }
+
+  // 1. Strip markdown code fences if present
+  let cleaned = rawText.trim();
+  if (cleaned.startsWith("```")) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+  }
+
+  // 2. Remove thinking tags (e.g. <think>...</think>)
+  cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+
+  // 3. Extract the JSON candidate between outermost braces
+  const firstBrace = cleaned.indexOf("{");
+  const lastBrace = cleaned.lastIndexOf("}");
+
+  if (firstBrace === -1) {
+    throw new Error("No JSON object found in AI response.");
+  }
+
+  let jsonCandidate =
+    firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace
+      ? cleaned.slice(firstBrace, lastBrace + 1)
+      : cleaned.slice(firstBrace);
+
+  // Direct parse attempt
+  try {
+    return JSON.parse(jsonCandidate);
+  } catch (err1) {
+    // Attempt standard syntax repair:
+    // a. Remove trailing commas before closing braces/brackets
+    let repaired = jsonCandidate
+      .replace(/,\s*([}\]])/g, "$1")
+      // b. Clean control characters
+      .replace(/[\u0000-\u001F\u007F-\u009F]/g, " ");
+
+    try {
+      return JSON.parse(repaired);
+    } catch (err2) {
+      // c. Auto-balance truncated JSON (unclosed strings, brackets, braces)
+      try {
+        let fixed = repaired;
+        const quoteCount = (fixed.match(/(?<!\\)"/g) || []).length;
+        if (quoteCount % 2 !== 0) {
+          fixed += '"';
+        }
+        const openBrackets = (fixed.match(/\[/g) || []).length;
+        const closeBrackets = (fixed.match(/\]/g) || []).length;
+        for (let i = 0; i < openBrackets - closeBrackets; i++) {
+          fixed += "]";
+        }
+        const openBraces = (fixed.match(/\{/g) || []).length;
+        const closeBraces = (fixed.match(/\}/g) || []).length;
+        for (let i = 0; i < openBraces - closeBraces; i++) {
+          fixed += "}";
+        }
+        return JSON.parse(fixed);
+      } catch (err3) {
+        throw new Error("AI returned malformed JSON. Please try again.");
       }
     }
   }
-
-  const sorted = Array.from(allChunks.values()).sort((a, b) => b.score - a.score);
-  return sorted
-    .slice(0, 18)
-    .map(
-      (r, i) =>
-        `[Portfolio Chunk ${i + 1}] (${r.chunk.metadata.source.toUpperCase()} — ${r.chunk.metadata.section}):\n${r.chunk.content}`
-    )
-    .join("\n\n---\n\n");
 }
 
 // ─── Main analysis function ───────────────────────────────────────────────────
@@ -108,7 +163,7 @@ export async function analyzeJobDescription(rawJD: string): Promise<JDAnalysisRe
   );
 
   const cleanJD = sanitizeJD(rawJD);
-  const portfolioContext = await retrievePortfolioForJD();
+  const portfolioContext = retrievePortfolioForJD();
 
   const systemPrompt = `You are an expert technical recruiter and career advisor performing a rigorous, personalized job description fit analysis for candidate Parth Patel.
 
@@ -119,21 +174,20 @@ CORE INSTRUCTIONS & COMPARISON RULES:
    {"isValidJD": false, "errorMessage": "The provided text does not appear to describe a legitimate job description or role requirements. Please provide a complete job description."}
 
 2. DIRECT RELEVANCE TO THIS SPECIFIC JOB DESCRIPTION:
-   - "jobTitle": Extract the specific title from the JD (e.g. "Full Stack Developer", "Backend Engineer", etc.). Never return "Not specified" if a title can be deduced.
+   - "jobTitle": Extract the specific title from the JD (e.g. "Full Stack Developer", "Backend Engineer", "Trainee - IT", etc.).
    - "companyName": Company name in the JD, or "Not specified".
-   - "summary": 2–3 personalized sentences directly comparing how Parth Patel's verified technical skills, internship at Shakktii AI (MockMingle), and full-stack projects directly address THIS specific role's challenges.
+   - "summary": 2–3 personalized sentences directly comparing how Parth Patel's verified technical skills, internship at Shakktii AI (MockMingle), and full-stack projects directly address THIS specific role's requirements.
    - "skillMatches":
-     * ONLY extract skills, technologies, and requirements EXPLICITLY requested or mentioned in the Job Description.
-     * Do NOT invent or list unrelated skills from Parth's profile that the JD did not ask for.
-     * Categorize each JD requirement as "demonstrated" (direct evidence in portfolio), "related" (transferable skill), or "not-documented" (not in profile).
+     * Extract the top 6 to 10 prominent skills and technologies EXPLICITLY requested in the Job Description. Do not exceed 10 items.
+     * Categorize each requirement as "demonstrated" (direct evidence in portfolio), "related" (transferable skill), or "not-documented" (not in profile).
    - "relevantProjects":
-     * Select from Parth's documented projects (QuizLab, MockMingle at Shakktii AI, Hardware Shop POS) that directly map to the JD's requirements, clearly articulating why they match this JD.
+     * Select 2 to 3 projects from Parth's documented work (QuizLab, MockMingle at Shakktii AI, Hardware Shop POS) that best match this JD.
    - "keyStrengths":
-     * 4–5 bullet items showing how Parth's documented achievements directly satisfy the core needs of this specific JD.
+     * 4–5 bullet items showing how Parth's documented achievements satisfy the core needs of this specific JD.
    - "potentialGaps" (Role-Specific Considerations):
-     * ONLY list skills or qualifications that the JOB DESCRIPTION explicitly demanded and that are absent from Parth's documented profile (e.g., "Docker", "Kubernetes", "AWS Lambda", "GraphQL").
-     * ABSOLUTELY NEVER invent or print unsolicited assumptions or negative claims about Parth's projects (such as "POS is not publicly available" or "limited enterprise exposure"). Both QuizLab (deployed live on Vercel) and Hardware Shop POS (publicly released and downloadable on GitHub as a desktop app with Windows installer) are active, public projects.
-     * If Parth meets all or nearly all requirements of the JD, return an empty array [] or at most 1 constructive note regarding role-specific domain knowledge.
+     * ONLY list skills or qualifications that the JOB DESCRIPTION explicitly demanded and that are absent from Parth's documented profile (e.g., "Docker", "Kubernetes", "AWS").
+     * ABSOLUTELY NEVER invent negative claims about Parth's projects. Both QuizLab (deployed live on Vercel) and Hardware Shop POS (publicly released and downloadable on GitHub as a desktop app) are active, public projects.
+     * If Parth meets all or nearly all requirements, return an empty array [] or at most 1 constructive note.
    - "recruiterRecommendation":
      * 2–3 sentences of an objective, positive recruiter verdict highlighting why Parth should be interviewed for this specific role.
 
@@ -150,22 +204,26 @@ SCORE CATEGORIES:
 - 40–59: Moderate Match
 - Below 40: Limited Match
 
-RETURN ONLY A VALID JSON OBJECT matching this exact TypeScript structure:
+RETURN ONLY A VALID JSON OBJECT matching this exact structure:
 {
   "isValidJD": true,
   "jobTitle": string,
   "companyName": string,
   "summary": string,
-  "skillMatches": Array<{
-    "skill": string,
-    "matchType": "demonstrated" | "related" | "not-documented",
-    "evidence": string
-  }>,
-  "relevantProjects": Array<{
-    "name": string,
-    "relevance": string,
-    "skills": string[]
-  }>,
+  "skillMatches": [
+    {
+      "skill": string,
+      "matchType": "demonstrated" | "related" | "not-documented",
+      "evidence": string
+    }
+  ],
+  "relevantProjects": [
+    {
+      "name": string,
+      "relevance": string,
+      "skills": string[]
+    }
+  ],
   "keyStrengths": string[],
   "potentialGaps": string[],
   "recruiterRecommendation": string,
@@ -193,23 +251,28 @@ ${cleanJD}
 
 Compare the candidate's verified profile against the JD requirements and return ONLY the JSON object.`;
 
-  let completion: any = null;
+  let parsed: any = null;
   let lastError: any = null;
 
   for (const modelToTry of candidateModels) {
     try {
-      completion = await groq.chat.completions.create({
+      const completion = await groq.chat.completions.create({
         model: modelToTry,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userContent },
         ],
         temperature: 0.1,
-        max_tokens: 3000,
-        top_p: 0.95,
+        max_tokens: 3800,
+        response_format: { type: "json_object" },
       });
-      if (completion && completion.choices && completion.choices.length > 0) {
-        break;
+
+      const rawText = completion.choices[0]?.message?.content || "";
+      if (rawText) {
+        parsed = robustJsonParse(rawText);
+        if (parsed) {
+          break; // successfully received and parsed JSON!
+        }
       }
     } catch (err: any) {
       console.warn(`[analyzeJobDescription] Model ${modelToTry} attempt failed, trying fallback:`, err?.message);
@@ -217,23 +280,8 @@ Compare the candidate's verified profile against the JD requirements and return 
     }
   }
 
-  if (!completion) {
+  if (!parsed) {
     throw new Error(lastError?.message || "Failed to analyze the job description with AI.");
-  }
-
-  const rawText = completion.choices[0]?.message?.content || "";
-
-  // Extract JSON from the response
-  const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error("AI returned an invalid response format. Please try again.");
-  }
-
-  let parsed: any;
-  try {
-    parsed = JSON.parse(jsonMatch[0]);
-  } catch {
-    throw new Error("AI returned malformed JSON. Please try again.");
   }
 
   // Handle explicit validation failure from LLM
