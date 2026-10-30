@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeJobDescription } from "@/app/lib/rag/jd-analyzer";
 import { getGroqApiKey } from "@/app/lib/rag/groq-client";
+import { validateJobDescriptionText } from "@/app/lib/rag/jd-validator";
 
-// Reuse the existing chat rate-limit map (separate limits for JD analysis)
+// Separate rate limits for JD analysis (heavier than chat)
 interface RateLimitRecord {
   timestamps: number[];
 }
 const jdRateLimitMap = new Map<string, RateLimitRecord>();
 const JD_RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
-const JD_MAX_REQUESTS_PER_WINDOW = 5; // JD analysis is heavier than chat
+const JD_MAX_REQUESTS_PER_WINDOW = 5;
 
 function checkJDRateLimit(ip: string): boolean {
   const now = Date.now();
@@ -55,9 +56,11 @@ export async function POST(req: NextRequest) {
 
     const trimmed = jobDescription.trim();
 
-    if (trimmed.length < 50) {
+    // Validate if the input is a genuine job description
+    const validation = validateJobDescriptionText(trimmed);
+    if (!validation.isValid) {
       return NextResponse.json(
-        { error: "Job description is too short. Please paste the full JD (at least 50 characters)." },
+        { error: validation.reason || "Please provide a valid job description." },
         { status: 400 }
       );
     }
@@ -72,7 +75,7 @@ export async function POST(req: NextRequest) {
     // 3. Check API key
     if (!getGroqApiKey()) {
       return NextResponse.json(
-        { error: "Groq API key is not configured. Please add GROQ_API_KEY to .env.local." },
+        { error: "Groq API key is not configured. Please add GROQ_API_KEY to your environment variables." },
         { status: 500 }
       );
     }
@@ -88,7 +91,6 @@ export async function POST(req: NextRequest) {
       ? "Groq API key is missing or invalid."
       : error?.message || "Failed to analyze the job description. Please try again.";
 
-    return NextResponse.json({ error: userMessage }, { status: 500 });
+    return NextResponse.json({ error: userMessage }, { status: 400 });
   }
 }
-

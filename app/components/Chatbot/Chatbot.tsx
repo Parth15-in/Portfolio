@@ -21,6 +21,7 @@ import {
 import { ChatMessageItem, type Message } from "./ChatMessageItem";
 import { JDAnalysisCard } from "./JDAnalysisCard";
 import type { JDAnalysisResult } from "@/app/lib/rag/jd-analyzer";
+import { validateJobDescriptionText } from "@/app/lib/rag/jd-validator";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -222,8 +223,10 @@ export default function Chatbot() {
   const handleAnalyzeJD = useCallback(async () => {
     const jd = jdText.trim();
     if (!jd || isAnalyzing) return;
-    if (jd.length < 50) {
-      setJdError("Please paste more of the job description (at least 50 characters).");
+
+    const validation = validateJobDescriptionText(jd);
+    if (!validation.isValid) {
+      setJdError(validation.reason || "Please enter or upload a valid job description (PDF, DOCX, or text).");
       return;
     }
 
@@ -307,8 +310,17 @@ export default function Chatbot() {
         throw new Error(data.error || "Failed to extract text from document.");
       }
 
+      const docValidation = validateJobDescriptionText(data.text);
+      if (!docValidation.isValid) {
+        setJdError(docValidation.reason || "The uploaded document does not appear to contain a valid job description.");
+        setJdText(data.text.slice(0, JD_MAX_CHARS));
+        setUploadedFileName(file.name);
+        return;
+      }
+
       setJdText(data.text.slice(0, JD_MAX_CHARS));
       setUploadedFileName(file.name);
+      setJdError(null);
     } catch (err: any) {
       console.error("[FileUpload] Error:", err);
       setJdError(err?.message || "Failed to process document.");

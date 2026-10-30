@@ -1,6 +1,7 @@
 import { Groq } from "groq-sdk";
 import { retrieveRelevantChunks } from "./retriever";
 import { getGroqApiKey } from "./groq-client";
+import { validateJobDescriptionText } from "./jd-validator";
 import type { QueryResult } from "./types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -42,7 +43,6 @@ export interface JDAnalysisResult {
 // ─── Prompt-injection sanitisation ───────────────────────────────────────────
 
 function sanitizeJD(jd: string): string {
-  // Remove any embedded instruction-like patterns that could attempt prompt injection
   return jd
     .replace(/ignore (previous|all|above|prior) (instructions?|prompts?|rules?)/gi, "[REDACTED]")
     .replace(/system\s*prompt/gi, "[REDACTED]")
@@ -50,13 +50,12 @@ function sanitizeJD(jd: string): string {
     .replace(/act as/gi, "[REDACTED]")
     .replace(/\[INST\]/gi, "[REDACTED]")
     .replace(/\[\/INST\]/gi, "[REDACTED]")
-    .slice(0, 4000); // Hard cap on JD length
+    .slice(0, 5000);
 }
 
 // ─── Portfolio knowledge retrieval for JD analysis ───────────────────────────
 
 async function retrievePortfolioForJD(): Promise<string> {
-  // Pull a broad set of portfolio chunks to give the LLM maximum coverage
   const queries = [
     "technical skills programming languages frameworks",
     "projects QuizLab Hardware Shop internship experience",
@@ -75,10 +74,9 @@ async function retrievePortfolioForJD(): Promise<string> {
     }
   }
 
-  // Sort by score descending and build context block
   const sorted = Array.from(allChunks.values()).sort((a, b) => b.score - a.score);
   return sorted
-    .slice(0, 18) // Top 18 unique chunks
+    .slice(0, 18)
     .map(
       (r, i) =>
         `[Portfolio Chunk ${i + 1}] (${r.chunk.metadata.source.toUpperCase()} — ${r.chunk.metadata.section}):\n${r.chunk.content}`
@@ -89,33 +87,55 @@ async function retrievePortfolioForJD(): Promise<string> {
 // ─── Main analysis function ───────────────────────────────────────────────────
 
 export async function analyzeJobDescription(rawJD: string): Promise<JDAnalysisResult> {
+  // 1. Validate JD text
+  const validation = validateJobDescriptionText(rawJD);
+  if (!validation.isValid) {
+    throw new Error(
+      validation.reason ||
+        "The provided text does not appear to describe a job opening or role requirements. Please paste a valid job description or upload a document."
+    );
+  }
+
   const apiKey = getGroqApiKey();
   if (!apiKey) {
     throw new Error("GROQ_API_KEY environment variable is not configured.");
   }
 
   const groq = new Groq({ apiKey });
-  const model = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
+  const configuredModel = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
+  const candidateModels = [configuredModel, "qwen/qwen3.8-27b", "openai/gpt-oss-20b"].filter(
+    (m, idx, arr) => arr.indexOf(m) === idx
+  );
 
   const cleanJD = sanitizeJD(rawJD);
   const portfolioContext = await retrievePortfolioForJD();
 
-  const systemPrompt = `You are an expert technical recruiter and career advisor analyzing a candidate's profile against a job description.
+  const systemPrompt = `You are an expert technical recruiter and career advisor performing a rigorous, personalized job description fit analysis for candidate Parth Patel.
 
-Your task is to match the candidate's verified portfolio and resume against the JD requirements and produce a structured, HONEST, and POSITIVE analysis.
+CORE INSTRUCTIONS & COMPARISON RULES:
+1. VALIDATION GUARDRAIL:
+   First, verify whether the provided text is genuinely describing a job position, internship, or technical role with duties or requirements.
+   If the text is random characters, incoherent text, spam, or contains no identifiable technical/job requirements, return ONLY:
+   {"isValidJD": false, "errorMessage": "The provided text does not appear to describe a legitimate job description or role requirements. Please provide a complete job description."}
 
-CRITICAL RULES:
-1. Only use the verified portfolio evidence provided. NEVER fabricate skills, certifications, experiences, or projects.
-2. Recognize transferable and related skills generously. A candidate who has used React.js professionally and Next.js in projects clearly understands modern JS frameworks.
-3. Give full credit for documented internship experience and academic projects — this is an early-career candidate.
-4. Use THREE match categories:
-   - "demonstrated": Direct evidence exists in the portfolio/resume.
-   - "related": Transferable skill or related technology is documented.
-   - "not-documented": No supporting evidence exists at all.
-5. Match score is CALCULATED from a weighted formula — do not invent it. Use the scoring criteria below.
-6. Keep gaps brief and constructive. Do not make the analysis negative.
-7. The recommendation must be genuinely positive where evidence supports it.
-8. Do not penalize missing years of experience for an early-career candidate.
+2. DIRECT RELEVANCE TO THIS SPECIFIC JOB DESCRIPTION:
+   - "jobTitle": Extract the specific title from the JD (e.g. "Full Stack Developer", "Backend Engineer", etc.). Never return "Not specified" if a title can be deduced.
+   - "companyName": Company name in the JD, or "Not specified".
+   - "summary": 2–3 personalized sentences directly comparing how Parth Patel's verified technical skills, internship at Shakktii AI (MockMingle), and full-stack projects directly address THIS specific role's challenges.
+   - "skillMatches":
+     * ONLY extract skills, technologies, and requirements EXPLICITLY requested or mentioned in the Job Description.
+     * Do NOT invent or list unrelated skills from Parth's profile that the JD did not ask for.
+     * Categorize each JD requirement as "demonstrated" (direct evidence in portfolio), "related" (transferable skill), or "not-documented" (not in profile).
+   - "relevantProjects":
+     * Select from Parth's documented projects (QuizLab, MockMingle at Shakktii AI, Hardware Shop POS) that directly map to the JD's requirements, clearly articulating why they match this JD.
+   - "keyStrengths":
+     * 4–5 bullet items showing how Parth's documented achievements directly satisfy the core needs of this specific JD.
+   - "potentialGaps" (Role-Specific Considerations):
+     * ONLY list skills or qualifications that the JOB DESCRIPTION explicitly demanded and that are absent from Parth's documented profile (e.g., "Docker", "Kubernetes", "AWS Lambda", "GraphQL").
+     * ABSOLUTELY NEVER invent or print unsolicited assumptions or negative claims about Parth's projects (such as "POS is not publicly available" or "limited enterprise exposure"). Both QuizLab (deployed live on Vercel) and Hardware Shop POS (publicly released and downloadable on GitHub as a desktop app with Windows installer) are active, public projects.
+     * If Parth meets all or nearly all requirements of the JD, return an empty array [] or at most 1 constructive note regarding role-specific domain knowledge.
+   - "recruiterRecommendation":
+     * 2–3 sentences of an objective, positive recruiter verdict highlighting why Parth should be interviewed for this specific role.
 
 SCORING WEIGHTS (sum to 100):
 - Required Technical Skills: 40 points max
@@ -124,39 +144,38 @@ SCORING WEIGHTS (sum to 100):
 - Preferred Skills: 10 points max
 - Education & Qualifications: 10 points max
 
-For each category, score 0–100% of the max points based on how well the profile matches.
-
 SCORE CATEGORIES:
 - 80–100: Strong Match
 - 60–79: Good Match
 - 40–59: Moderate Match
 - Below 40: Limited Match
 
-RETURN ONLY A VALID JSON OBJECT matching this exact TypeScript interface:
+RETURN ONLY A VALID JSON OBJECT matching this exact TypeScript structure:
 {
+  "isValidJD": true,
   "jobTitle": string,
-  "companyName": string (or "Not specified"),
-  "summary": string (2–3 sentences, positive and honest),
+  "companyName": string,
+  "summary": string,
   "skillMatches": Array<{
     "skill": string,
     "matchType": "demonstrated" | "related" | "not-documented",
-    "evidence": string (1 sentence citing specific portfolio evidence, or "Not found in documented profile" if not-documented)
+    "evidence": string
   }>,
   "relevantProjects": Array<{
     "name": string,
-    "relevance": string (1–2 sentences),
+    "relevance": string,
     "skills": string[]
   }>,
-  "keyStrengths": string[] (4–6 bullet items, specific and evidence-based),
-  "potentialGaps": string[] (max 3 items, constructive wording),
-  "recruiterRecommendation": string (2–3 sentences, positive where supported),
-  "followUpQuestions": string[] (exactly 4 questions a recruiter might ask),
+  "keyStrengths": string[],
+  "potentialGaps": string[],
+  "recruiterRecommendation": string,
+  "followUpQuestions": string[],
   "scoringBreakdown": {
-    "technicalSkills": { "score": number (0–40), "weight": 40, "maxScore": 40 },
-    "projectExperience": { "score": number (0–25), "weight": 25, "maxScore": 25 },
-    "responsibilities": { "score": number (0–15), "weight": 15, "maxScore": 15 },
-    "preferredSkills": { "score": number (0–10), "weight": 10, "maxScore": 10 },
-    "education": { "score": number (0–10), "weight": 10, "maxScore": 10 }
+    "technicalSkills": { "score": number, "weight": 40, "maxScore": 40 },
+    "projectExperience": { "score": number, "weight": 25, "maxScore": 25 },
+    "responsibilities": { "score": number, "weight": 15, "maxScore": 15 },
+    "preferredSkills": { "score": number, "weight": 10, "maxScore": 10 },
+    "education": { "score": number, "weight": 10, "maxScore": 10 }
   }
 }
 
@@ -172,18 +191,35 @@ Here is the Job Description to analyze:
 ${cleanJD}
 </job_description>
 
-Analyze the profile against the JD. Return ONLY the JSON object as instructed.`;
+Compare the candidate's verified profile against the JD requirements and return ONLY the JSON object.`;
 
-  const completion = await groq.chat.completions.create({
-    model,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userContent },
-    ],
-    temperature: 0.1,
-    max_tokens: 3000,
-    top_p: 0.95,
-  });
+  let completion: any = null;
+  let lastError: any = null;
+
+  for (const modelToTry of candidateModels) {
+    try {
+      completion = await groq.chat.completions.create({
+        model: modelToTry,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userContent },
+        ],
+        temperature: 0.1,
+        max_tokens: 3000,
+        top_p: 0.95,
+      });
+      if (completion && completion.choices && completion.choices.length > 0) {
+        break;
+      }
+    } catch (err: any) {
+      console.warn(`[analyzeJobDescription] Model ${modelToTry} attempt failed, trying fallback:`, err?.message);
+      lastError = err;
+    }
+  }
+
+  if (!completion) {
+    throw new Error(lastError?.message || "Failed to analyze the job description with AI.");
+  }
 
   const rawText = completion.choices[0]?.message?.content || "";
 
@@ -200,10 +236,16 @@ Analyze the profile against the JD. Return ONLY the JSON object as instructed.`;
     throw new Error("AI returned malformed JSON. Please try again.");
   }
 
-  // Validate and compute final match score from scoring breakdown
-  const breakdown = parsed.scoringBreakdown;
-  if (!breakdown) throw new Error("Missing scoring breakdown in AI response.");
+  // Handle explicit validation failure from LLM
+  if (parsed.isValidJD === false) {
+    throw new Error(
+      parsed.errorMessage ||
+        "The provided text does not appear to describe a job opening. Please paste a valid job description or upload a document."
+    );
+  }
 
+  // Validate and compute final match score from scoring breakdown
+  const breakdown = parsed.scoringBreakdown || {};
   const totalScore =
     (breakdown.technicalSkills?.score || 0) +
     (breakdown.projectExperience?.score || 0) +
@@ -220,7 +262,7 @@ Analyze the profile against the JD. Return ONLY the JSON object as instructed.`;
   else matchCategory = "Limited Match";
 
   return {
-    jobTitle: String(parsed.jobTitle || "Unknown Role").slice(0, 120),
+    jobTitle: String(parsed.jobTitle || "Target Role").slice(0, 120),
     companyName: String(parsed.companyName || "Not specified").slice(0, 100),
     matchScore,
     matchCategory,
@@ -280,4 +322,3 @@ Analyze the profile against the JD. Return ONLY the JSON object as instructed.`;
     },
   };
 }
-

@@ -161,13 +161,23 @@ Detailed Contributions and Responsibilities:
   // Projects from data.ts
   for (const project of projects) {
     const isBackend = project.techStack.some(t => ["Node.js", "PostgreSQL", "Prisma ORM", "REST API", "NextAuth"].includes(t));
+    const liveInfo = project.desktopUrl
+      ? `Release & Availability: Publicly released and available for download (Windows .exe desktop application: ${project.desktopUrl})`
+      : project.liveUrl
+      ? `Live URL: ${project.liveUrl}`
+      : "Internal / Professional Application";
+    const repoInfo = project.githubUrl
+      ? `GitHub Repository: ${project.githubUrl}`
+      : project.desktopUrl
+      ? `GitHub Repository: Public repository at https://github.com/Parth15-in/HardwarePRO`
+      : "Repository details documented in portfolio";
     const projectContent = `
 Project: ${project.title} (${project.subtitle})
 Type: ${project.organization ? `Professional Work (${project.organization})` : "Personal / Technical Project"}
 Description: ${project.description}
 Backend & Architecture: ${isBackend ? "Demonstrates full-stack and backend engineering, RESTful APIs, relational data modeling with PostgreSQL and Prisma ORM." : "Frontend and full-stack integration"}
-Live URL: ${project.liveUrl || "Not publicly deployed (desktop application or internal)"}
-GitHub Repository: ${project.githubUrl || "Private or internal repository"}
+${liveInfo}
+${repoInfo}
 Tech Stack: ${project.techStack.join(", ")}
 Key Features and Implementations:
 ${project.features.map(f => `- ${f}`).join("\n")}

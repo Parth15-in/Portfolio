@@ -10,6 +10,7 @@ import {
   FolderGit2,
   Zap,
   AlertTriangle,
+  Info,
   Star,
 } from "lucide-react";
 import type { JDAnalysisResult } from "@/app/lib/rag/jd-analyzer";
@@ -310,17 +311,17 @@ export const JDAnalysisCard: React.FC<JDAnalysisCardProps> = ({
 
       {/* ── Section 6: Potential Gaps ── */}
       {analysis.potentialGaps.length > 0 && (
-        <div className="bg-white rounded-2xl border border-amber-200 shadow-xs p-3.5">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-3.5">
           <div className="flex items-center gap-2 mb-3">
-            <AlertTriangle size={12} className="text-amber-600" />
-            <span className="text-[11px] font-bold text-amber-700 uppercase tracking-wider">
-              Areas to Highlight
+            <Info size={12} className="text-slate-600" />
+            <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+              Role Requirements to Verify (JD-Specific)
             </span>
           </div>
           <div className="flex flex-col gap-1.5">
             {analysis.potentialGaps.map((g, i) => (
               <div key={i} className="flex items-start gap-2">
-                <span className="text-amber-400 font-bold mt-0.5 text-xs flex-shrink-0">→</span>
+                <span className="text-blue-500 font-bold mt-0.5 text-xs flex-shrink-0">•</span>
                 <span className="text-[12px] text-slate-700 leading-snug">{g}</span>
               </div>
             ))}
