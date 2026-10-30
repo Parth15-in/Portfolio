@@ -34,7 +34,11 @@ function InstagramIcon({ size = 24 }: { size?: number }) {
 
 export default function Footer() {
   const scrollToTop = () => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    if ((window as any).__lenis) {
+      (window as any).__lenis.scrollTo(0);
+    } else {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   };
 
   const [year, setYear] = useState<number | null>(null);

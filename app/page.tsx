@@ -7,6 +7,7 @@ import SkillsSection from "@/app/components/SkillsSection";
 import AchievementsSection from "@/app/components/AchievementsSection";
 import EducationSection from "@/app/components/EducationSection";
 import ContactSection from "@/app/components/ContactSection";
+import Chatbot from "@/app/components/Chatbot/Chatbot";
 
 export default function Home() {
   return (
@@ -22,6 +23,7 @@ export default function Home() {
         <EducationSection />
         <ContactSection />
       </main>
+      <Chatbot />
     </>
   );
 }

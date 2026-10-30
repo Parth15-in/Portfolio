@@ -9,35 +9,54 @@ export default function Navbar() {
   const [activeSection, setActiveSection] = useState("home");
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const handleScroll = useCallback(() => {
-    setScrolled(window.scrollY > 20);
+  useEffect(() => {
+    let rafId: number | null = null;
 
-    const isAtBottom =
-      window.innerHeight + window.scrollY >=
-      document.documentElement.scrollHeight - 70;
+    const updateScroll = () => {
+      const scrollY = window.scrollY;
+      const isScrolled = scrollY > 20;
+      setScrolled((prev) => (prev !== isScrolled ? isScrolled : prev));
 
-    if (isAtBottom) {
-      setActiveSection("contact");
-      return;
-    }
+      const isAtBottom =
+        window.innerHeight + scrollY >=
+        document.documentElement.scrollHeight - 70;
 
-    const sections = navLinks.map((l) => l.href.replace("#", ""));
-    for (const id of [...sections].reverse()) {
-      const el = document.getElementById(id);
-      if (el) {
-        const rect = el.getBoundingClientRect();
-        if (rect.top <= 100) {
-          setActiveSection(id);
-          break;
+      if (isAtBottom) {
+        setActiveSection((prev) => (prev !== "contact" ? "contact" : prev));
+        rafId = null;
+        return;
+      }
+
+      const sections = navLinks.map((l) => l.href.replace("#", ""));
+      for (const id of [...sections].reverse()) {
+        const el = document.getElementById(id);
+        if (el) {
+          const top = el.offsetTop - 120;
+          if (scrollY >= top) {
+            setActiveSection((prev) => (prev !== id ? id : prev));
+            break;
+          }
         }
       }
-    }
-  }, []);
+      rafId = null;
+    };
 
-  useEffect(() => {
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, [handleScroll]);
+    const onScroll = () => {
+      if (rafId === null) {
+        rafId = window.requestAnimationFrame(updateScroll);
+      }
+    };
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    updateScroll();
+
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId);
+      }
+    };
+  }, []);
 
   const handleNavClick = (href: string) => {
     setMenuOpen(false);
@@ -45,9 +64,13 @@ export default function Navbar() {
     setActiveSection(id);
     const el = document.getElementById(id);
     if (el) {
-      const offset = 58;
-      const top = el.getBoundingClientRect().top + window.scrollY - offset;
-      window.scrollTo({ top, behavior: "smooth" });
+      if ((window as any).__lenis) {
+        (window as any).__lenis.scrollTo(el, { offset: -58 });
+      } else {
+        const offset = 58;
+        const top = el.getBoundingClientRect().top + window.scrollY - offset;
+        window.scrollTo({ top, behavior: "smooth" });
+      }
     }
   };
 
@@ -59,6 +82,7 @@ export default function Navbar() {
         backdropFilter: scrolled ? "blur(12px)" : "none",
         borderBottom: scrolled ? "1px solid var(--line)" : "1px solid transparent",
         boxShadow: scrolled ? "0 1px 20px rgba(0,0,0,0.06)" : "none",
+        transform: "translateZ(0)",
       }}
     >
       <div

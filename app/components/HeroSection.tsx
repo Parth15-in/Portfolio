@@ -46,8 +46,12 @@ export default function HeroSection() {
   const scrollTo = (id: string) => {
     const el = document.getElementById(id);
     if (el) {
-      const top = el.getBoundingClientRect().top + window.scrollY - 58;
-      window.scrollTo({ top, behavior: "smooth" });
+      if ((window as any).__lenis) {
+        (window as any).__lenis.scrollTo(el, { offset: -58 });
+      } else {
+        const top = el.getBoundingClientRect().top + window.scrollY - 58;
+        window.scrollTo({ top, behavior: "smooth" });
+      }
     }
   };
 
