@@ -1,5 +1,6 @@
 import { Groq } from "groq-sdk";
 import { retrieveRelevantChunks } from "./retriever";
+import { getGroqApiKey } from "./groq-client";
 import type { QueryResult } from "./types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -88,7 +89,7 @@ async function retrievePortfolioForJD(): Promise<string> {
 // ─── Main analysis function ───────────────────────────────────────────────────
 
 export async function analyzeJobDescription(rawJD: string): Promise<JDAnalysisResult> {
-  const apiKey = process.env.GROQ_API_KEY;
+  const apiKey = getGroqApiKey();
   if (!apiKey) {
     throw new Error("GROQ_API_KEY environment variable is not configured.");
   }

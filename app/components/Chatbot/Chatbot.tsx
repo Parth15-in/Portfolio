@@ -195,7 +195,7 @@ export default function Chatbot() {
 
         const data = await res.json();
 
-        if (!res.ok) throw new Error(data.error || "Failed to receive an answer.");
+        if (!res.ok) throw new Error(data.error || data.answer || "Failed to receive an answer.");
 
         const assistantMessage: Message = {
           id: `assistant-${Date.now()}`,

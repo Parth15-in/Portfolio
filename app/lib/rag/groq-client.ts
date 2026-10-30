@@ -3,8 +3,17 @@ import type { ChatMessage, ChatResponse, QueryResult, SourceReference } from "./
 
 let groqInstance: Groq | null = null;
 
+export function getGroqApiKey(): string | undefined {
+  return (
+    process.env.GROQ_API_KEY ||
+    process.env.GROQ_KEY ||
+    process.env.GROQ_API ||
+    process.env.GROQ
+  );
+}
+
 function getGroqClient(): Groq {
-  const apiKey = process.env.GROQ_API_KEY;
+  const apiKey = getGroqApiKey();
   if (!apiKey) {
     throw new Error("GROQ_API_KEY environment variable is not configured.");
   }
@@ -48,7 +57,10 @@ export async function generateRAGAnswer(
   conversationHistory: ChatMessage[] = []
 ): Promise<ChatResponse> {
   const groq = getGroqClient();
-  const model = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
+  const configuredModel = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
+  const candidateModels = [configuredModel, "qwen/qwen3.8-27b", "openai/gpt-oss-20b"].filter(
+    (m, idx, arr) => arr.indexOf(m) === idx
+  );
 
   // Build context block with safety delimiters
   let contextBlock = "";
@@ -98,58 +110,71 @@ Please provide a factual, grounded answer based strictly on the evidence above.`
     content: userContent,
   });
 
-  try {
-    const completion = await groq.chat.completions.create({
-      model,
-      messages,
-      temperature: 0.15,
-      max_tokens: 1024,
-      top_p: 0.95,
-    });
+  let completion: any = null;
+  let lastError: any = null;
 
-    const rawAnswer = completion.choices[0]?.message?.content || "";
-
-    // Parse out SUGGESTION lines
-    const lines = rawAnswer.split("\n");
-    const contentLines: string[] = [];
-    const suggestedQuestions: string[] = [];
-
-    for (const line of lines) {
-      if (line.trim().startsWith("SUGGESTION:")) {
-        const suggestion = line.replace(/^SUGGESTION:\s*/i, "").trim();
-        if (suggestion.length > 0) {
-          suggestedQuestions.push(suggestion);
-        }
-      } else {
-        contentLines.push(line);
+  for (const modelToTry of candidateModels) {
+    try {
+      completion = await groq.chat.completions.create({
+        model: modelToTry,
+        messages,
+        temperature: 0.15,
+        max_tokens: 1024,
+        top_p: 0.95,
+      });
+      if (completion && completion.choices && completion.choices.length > 0) {
+        break;
       }
+    } catch (err: any) {
+      console.warn(`[GroqClient] Model ${modelToTry} attempt failed, trying fallback:`, err?.message);
+      lastError = err;
     }
-
-    const cleanAnswer = contentLines.join("\n").trim();
-
-    // Build source references
-    const uniqueSources = new Map<string, SourceReference>();
-    for (const r of retrievedResults) {
-      const meta = r.chunk.metadata;
-      const key = `${meta.source}-${meta.section}`;
-      if (!uniqueSources.has(key)) {
-        uniqueSources.set(key, {
-          title: meta.section,
-          category: meta.category,
-          source: meta.source === "resume" ? "Resume PDF" : "Portfolio Website",
-          url: meta.url,
-        });
-      }
-    }
-
-    return {
-      answer: cleanAnswer,
-      sources: Array.from(uniqueSources.values()),
-      suggestedQuestions: suggestedQuestions.slice(0, 3),
-      retrievalCount: retrievedResults.length,
-    };
-  } catch (error: any) {
-    console.error("[GroqClient] Chat completion error:", error);
-    throw new Error(error?.message || "Failed to generate answer from Groq.");
   }
+
+  if (!completion) {
+    console.error("[GroqClient] All candidate models failed:", lastError);
+    throw new Error(lastError?.message || "Failed to generate answer from Groq.");
+  }
+
+  const rawAnswer = completion.choices[0]?.message?.content || "";
+
+  // Parse out SUGGESTION lines
+  const lines = rawAnswer.split("\n");
+  const contentLines: string[] = [];
+  const suggestedQuestions: string[] = [];
+
+  for (const line of lines) {
+    if (line.trim().startsWith("SUGGESTION:")) {
+      const suggestion = line.replace(/^SUGGESTION:\s*/i, "").trim();
+      if (suggestion.length > 0) {
+        suggestedQuestions.push(suggestion);
+      }
+    } else {
+      contentLines.push(line);
+    }
+  }
+
+  const cleanAnswer = contentLines.join("\n").trim();
+
+  // Build source references
+  const uniqueSources = new Map<string, SourceReference>();
+  for (const r of retrievedResults) {
+    const meta = r.chunk.metadata;
+    const key = `${meta.source}-${meta.section}`;
+    if (!uniqueSources.has(key)) {
+      uniqueSources.set(key, {
+        title: meta.section,
+        category: meta.category,
+        source: meta.source === "resume" ? "Resume PDF" : "Portfolio Website",
+        url: meta.url,
+      });
+    }
+  }
+
+  return {
+    answer: cleanAnswer,
+    sources: Array.from(uniqueSources.values()),
+    suggestedQuestions: suggestedQuestions.slice(0, 3),
+    retrievalCount: retrievedResults.length,
+  };
 }

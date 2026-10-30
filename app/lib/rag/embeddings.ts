@@ -11,6 +11,10 @@ async function getLocalPipeline(): Promise<FeatureExtractionPipeline> {
       // Allow remote models to be fetched and cached in Node's cache dir
       env.allowLocalModels = false;
       env.useBrowserCache = false;
+      // On Vercel / AWS Lambda, the filesystem is read-only except /tmp
+      if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.TMPDIR) {
+        env.cacheDir = "/tmp/.cache";
+      }
       return pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2");
     })();
   }
@@ -20,12 +24,18 @@ async function getLocalPipeline(): Promise<FeatureExtractionPipeline> {
 /**
  * Generate embedding for a single text string using Xenova all-MiniLM-L6-v2 (384 dimensions)
  * or OpenAI text-embedding-3-small (if explicitly configured via EMBEDDING_PROVIDER=openai).
+ * Returns null if embedding generation fails (graceful fallback).
  */
-export async function generateEmbedding(text: string): Promise<number[]> {
+export async function generateEmbedding(text: string): Promise<number[] | null> {
   const provider = process.env.EMBEDDING_PROVIDER || "local";
 
   if (provider === "openai" && process.env.OPENAI_API_KEY) {
-    return generateOpenAIEmbedding(text);
+    try {
+      return await generateOpenAIEmbedding(text);
+    } catch (err) {
+      console.warn("[generateEmbedding] OpenAI failed:", err);
+      return null;
+    }
   }
 
   return generateLocalEmbedding(text);
@@ -53,11 +63,16 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   return results;
 }
 
-async function generateLocalEmbedding(text: string): Promise<number[]> {
-  const pipe = await getLocalPipeline();
-  const clean = text.replace(/\n+/g, " ").trim();
-  const output = await pipe(clean, { pooling: "mean", normalize: true });
-  return Array.from(output.data as Float32Array);
+async function generateLocalEmbedding(text: string): Promise<number[] | null> {
+  try {
+    const pipe = await getLocalPipeline();
+    const clean = text.replace(/\n+/g, " ").trim();
+    const output = await pipe(clean, { pooling: "mean", normalize: true });
+    return Array.from(output.data as Float32Array);
+  } catch (err) {
+    console.warn("[generateLocalEmbedding] Local model generation skipped (will use keyword retrieval):", err);
+    return null;
+  }
 }
 
 async function generateOpenAIEmbedding(text: string): Promise<number[]> {

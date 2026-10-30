@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { retrieveRelevantChunks } from "@/app/lib/rag/retriever";
-import { generateRAGAnswer } from "@/app/lib/rag/groq-client";
+import { generateRAGAnswer, getGroqApiKey } from "@/app/lib/rag/groq-client";
 import type { ChatMessage } from "@/app/lib/rag/types";
 
 // In-memory sliding window rate limiter
@@ -87,12 +87,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Check if Groq API key is present
-    if (!process.env.GROQ_API_KEY) {
+    // Check if Groq API key is present (checks GROQ_API_KEY, GROQ_KEY, GROQ_API, GROQ)
+    const apiKey = getGroqApiKey();
+    if (!apiKey) {
       return NextResponse.json(
         {
+          error: "Groq API key is not configured.",
           answer:
-            "I'm currently unable to process your request because the Groq API key is not configured. Please add `GROQ_API_KEY` to `.env.local` to enable AI responses.",
+            "I'm currently unable to process your question because the Groq API key is not active on this deployment.\n\n**To resolve:**\n1. In your **Vercel Dashboard**, go to **Settings > Environment Variables**.\n2. Ensure the key name is **`GROQ_API_KEY`** with your valid Groq key.\n3. Go to the **Deployments** tab and click **Redeploy** (environment variables only take effect on new deployments).",
           sources: [],
           suggestedQuestions: [
             "Tell me about Parth's education.",
@@ -104,7 +106,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3. RAG Semantic Retrieval
+    // 3. RAG Semantic & Keyword Retrieval
     const retrievedChunks = await retrieveRelevantChunks(cleanMessage, validatedHistory);
 
     // 4. Groq Answer Generation
@@ -114,13 +116,18 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error("[API /api/chat] Error handling chat request:", error);
 
-    // Never leak internal stack traces or configuration
-    const userMessage = error?.message?.includes("GROQ_API_KEY")
-      ? "Groq API key is missing or invalid. Please check server configuration."
-      : "I ran into a temporary issue retrieving an answer. Please try asking again in a moment.";
+    const isApiKeyError =
+      error?.message?.includes("GROQ_API_KEY") ||
+      error?.status === 401 ||
+      error?.message?.includes("401");
+
+    const userMessage = isApiKeyError
+      ? "Groq API key appears invalid or expired. Please check your GROQ_API_KEY in Vercel Environment Variables and redeploy."
+      : (error?.message || "I ran into a temporary issue retrieving an answer. Please try asking again in a moment.");
 
     return NextResponse.json(
       {
+        error: userMessage,
         answer: userMessage,
         sources: [],
         suggestedQuestions: [
@@ -129,7 +136,7 @@ export async function POST(req: NextRequest) {
           "Which projects use Next.js?",
         ],
       },
-      { status: 500 }
+      { status: 200 }
     );
   }
 }

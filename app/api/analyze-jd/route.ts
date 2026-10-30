@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeJobDescription } from "@/app/lib/rag/jd-analyzer";
+import { getGroqApiKey } from "@/app/lib/rag/groq-client";
 
 // Reuse the existing chat rate-limit map (separate limits for JD analysis)
 interface RateLimitRecord {
@@ -69,7 +70,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 3. Check API key
-    if (!process.env.GROQ_API_KEY) {
+    if (!getGroqApiKey()) {
       return NextResponse.json(
         { error: "Groq API key is not configured. Please add GROQ_API_KEY to .env.local." },
         { status: 500 }

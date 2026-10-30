@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import type { DocumentChunk, QueryResult, VectorRecord } from "./types";
+import staticIndexData from "./vector-index.json";
 
 const INDEX_FILE = path.join(process.cwd(), "app", "lib", "rag", "vector-index.json");
 
@@ -36,8 +37,19 @@ export function cosineSimilarity(a: number[], b: number[]): number {
 let inMemoryRecords: VectorRecord[] | null = null;
 
 function loadRecords(): VectorRecord[] {
-  if (inMemoryRecords) return inMemoryRecords;
+  if (inMemoryRecords && inMemoryRecords.length > 0) return inMemoryRecords;
 
+  // 1. Static bundled index: zero filesystem dependency, 100% reliable on Vercel / serverless
+  try {
+    if (staticIndexData && Array.isArray((staticIndexData as any).records) && (staticIndexData as any).records.length > 0) {
+      inMemoryRecords = (staticIndexData as any).records as VectorRecord[];
+      return inMemoryRecords;
+    }
+  } catch (err) {
+    console.warn("[LocalVectorStore] Static index fallback to disk:", err);
+  }
+
+  // 2. Dynamic file fallback (local development / re-indexing)
   try {
     if (fs.existsSync(INDEX_FILE)) {
       const content = fs.readFileSync(INDEX_FILE, "utf-8");
