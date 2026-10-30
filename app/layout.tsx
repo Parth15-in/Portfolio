@@ -25,7 +25,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Parth Patel | Full Stack AI Engineer",
+  title: "Parth's Portfolio",
   description:
     "Professional portfolio of Parth Patel — Full Stack AI Engineer with expertise in React.js, Next.js, Node.js, MongoDB, and AI integration. Open to software engineering opportunities.",
   keywords: [
@@ -41,7 +41,7 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: "Parth Patel", url: "https://github.com/Parth15-in" }],
   openGraph: {
-    title: "Parth Patel | Full Stack AI Engineer",
+    title: "Parth's Portfolio",
     description:
       "Full Stack AI Engineer with hands-on experience building scalable web applications using React.js, Next.js, Node.js, and MongoDB.",
     type: "website",
@@ -50,7 +50,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Parth Patel | Full Stack AI Engineer",
+    title: "Parth's Portfolio",
     description:
       "Full Stack AI Engineer | React.js, Next.js, Node.js, MongoDB, AI Integration",
   },
