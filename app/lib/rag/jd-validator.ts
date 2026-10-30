@@ -95,3 +95,4 @@ export function validateJobDescriptionText(text: string): JDValidationResult {
 
   return { isValid: true };
 }
+
