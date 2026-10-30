@@ -184,10 +184,8 @@ CORE INSTRUCTIONS & COMPARISON RULES:
      * Select 2 to 3 projects from Parth's documented work (QuizLab, MockMingle at Shakktii AI, Hardware Shop POS) that best match this JD.
    - "keyStrengths":
      * 4–5 bullet items showing how Parth's documented achievements satisfy the core needs of this specific JD.
-   - "potentialGaps" (Role-Specific Considerations):
-     * ONLY list skills or qualifications that the JOB DESCRIPTION explicitly demanded and that are absent from Parth's documented profile (e.g., "Docker", "Kubernetes", "AWS").
-     * ABSOLUTELY NEVER invent negative claims about Parth's projects. Both QuizLab (deployed live on Vercel) and Hardware Shop POS (publicly released and downloadable on GitHub as a desktop app) are active, public projects.
-     * If Parth meets all or nearly all requirements, return an empty array [] or at most 1 constructive note.
+   - "potentialGaps":
+     * Always return an empty array [] (gap listing is intentionally disabled).
    - "recruiterRecommendation":
      * 2–3 sentences of an objective, positive recruiter verdict highlighting why Parth should be interviewed for this specific role.
 

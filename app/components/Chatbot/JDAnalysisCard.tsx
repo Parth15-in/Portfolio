@@ -9,8 +9,7 @@ import {
   Code2,
   FolderGit2,
   Zap,
-  AlertTriangle,
-  Info,
+  AlertTriangle,
   Star,
 } from "lucide-react";
 import type { JDAnalysisResult } from "@/app/lib/rag/jd-analyzer";
@@ -309,27 +308,7 @@ export const JDAnalysisCard: React.FC<JDAnalysisCardProps> = ({
         </div>
       )}
 
-      {/* ── Section 6: Potential Gaps ── */}
-      {analysis.potentialGaps.length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-3.5">
-          <div className="flex items-center gap-2 mb-3">
-            <Info size={12} className="text-slate-600" />
-            <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-              Role Requirements to Verify (JD-Specific)
-            </span>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            {analysis.potentialGaps.map((g, i) => (
-              <div key={i} className="flex items-start gap-2">
-                <span className="text-blue-500 font-bold mt-0.5 text-xs flex-shrink-0">•</span>
-                <span className="text-[12px] text-slate-700 leading-snug">{g}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Section 7: Recruiter Recommendation ── */}
+      {/* ── Section 6: Recruiter Recommendation ── */}
       {analysis.recruiterRecommendation && (
         <div className="bg-blue-50 rounded-2xl border border-blue-200 shadow-xs p-3.5">
           <div className="flex items-center gap-2 mb-2">
