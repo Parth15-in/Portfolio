@@ -20,6 +20,7 @@ export interface Project {
   features: string[];
   liveUrl?: string;
   githubUrl?: string;
+  desktopUrl?: string;
   organization?: string;
   gradientFrom: string;
   gradientTo: string;
@@ -137,6 +138,7 @@ export const projects: Project[] = [
     gradientFrom: "#0F766E",
     gradientTo: "#0369A1",
     icon: "store",
+    desktopUrl: "https://github.com/Parth15-in/HardwarePRO#download-desktop-app-windows-exe",
   },
 ];
 
@@ -209,3 +211,5 @@ export const achievements: Achievement[] = [
     type: "volunteer",
   },
 ];
+
+
