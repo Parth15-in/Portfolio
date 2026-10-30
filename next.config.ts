@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  serverExternalPackages: ["pdf-parse", "mammoth", "@xenova/transformers"],
   experimental: {
     agentFeedback: true,
     agentUpgrade: "security",
