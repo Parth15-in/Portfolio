@@ -153,6 +153,23 @@ export default function ProjectsSection() {
                           GitHub
                         </a>
                       )}
+                      {project.desktopUrl && (
+                        <a
+                          href={project.desktopUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full transition-colors"
+                          style={{
+                            background: "rgba(255,255,255,0.2)",
+                            color: "#fff",
+                            backdropFilter: "blur(4px)",
+                          }}
+                          aria-label={`Download ${project.title} desktop app`}
+                        >
+                          <ExternalLink size={11} />
+                          Download
+                        </a>
+                      )}
                     </div>
                   </div>
 
@@ -241,13 +258,28 @@ export default function ProjectsSection() {
                           GitHub
                         </a>
                       )}
-                      {!project.liveUrl && !project.githubUrl && (
+                      {!project.liveUrl && !project.githubUrl && !project.desktopUrl && (
                         <span
                           className="flex-1 flex items-center justify-center py-2 rounded-xl text-xs font-medium"
                           style={{ background: "var(--bg)", color: "var(--muted)", border: "1px solid var(--line)" }}
                         >
                           {project.organization ? `Professional Work — ${project.organization}` : "Desktop Application"}
                         </span>
+                      )}
+                      {!project.liveUrl && !project.githubUrl && project.desktopUrl && (
+                        <a
+                          href={project.desktopUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition-all duration-200 hover:opacity-90"
+                          style={{
+                            background: `linear-gradient(135deg, ${project.gradientFrom}, ${project.gradientTo})`,
+                            color: "#fff",
+                          }}
+                        >
+                          <ExternalLink size={12} />
+                          Desktop Application
+                        </a>
                       )}
                     </div>
                   </div>

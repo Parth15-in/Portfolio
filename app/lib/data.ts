@@ -20,6 +20,7 @@ export interface Project {
   features: string[];
   liveUrl?: string;
   githubUrl?: string;
+  desktopUrl?: string;
   organization?: string;
   gradientFrom: string;
   gradientTo: string;
@@ -98,10 +99,10 @@ export const projects: Project[] = [
       "Node.js",
     ],
     features: [
-      "AI-powered real-time quiz generation via GroqAI",
-      "REST APIs for quiz generation and answer validation",
-      "Authentication using NextAuth",
-      "Database operations using Prisma ORM and PostgreSQL",
+      "AI-powered real-time quiz generation via GroqAI & prompt engineering",
+      "REST APIs for quiz generation and server-side answer validation",
+      "Authentication using NextAuth with Google OAuth and HTTP-only cookies",
+      "Database operations using Prisma ORM and PostgreSQL with response caching",
       "Responsive interface using Tailwind CSS and shadcn/ui",
       "Deployed on Vercel",
     ],
@@ -137,6 +138,7 @@ export const projects: Project[] = [
     gradientFrom: "#0F766E",
     gradientTo: "#0369A1",
     icon: "store",
+    desktopUrl: "https://github.com/Parth15-in/HardwarePRO#download-desktop-app-windows-exe",
   },
 ];
 
