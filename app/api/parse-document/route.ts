@@ -21,8 +21,93 @@ function decodeHexPdfString(hex: string): string {
 }
 
 /**
- * Pure Node.js zero-dependency PDF text extractor using built-in zlib.
- * 100% reliable across all serverless and containerized environments.
+ * Primary PDF Extractor: pdf2json
+ * Fully self-contained CommonJS Node parser compatible with AWS Lambda and Vercel Serverless.
+ */
+async function extractWithPdf2Json(buffer: Buffer): Promise<string> {
+  return new Promise((resolve) => {
+    try {
+      // @ts-ignore
+      const PDFParser = require("pdf2json");
+      const pdfParser = new PDFParser(null, 1);
+
+      const timeout = setTimeout(() => {
+        resolve("");
+      }, 8000);
+
+      pdfParser.on("pdfParser_dataError", (errData: any) => {
+        clearTimeout(timeout);
+        console.warn("[parse-document] pdf2json parser error:", errData?.parserError);
+        resolve("");
+      });
+
+      pdfParser.on("pdfParser_dataReady", (pdfData: any) => {
+        clearTimeout(timeout);
+        try {
+          // Approach 1: getRawTextContent()
+          const raw = pdfParser.getRawTextContent();
+          if (raw && raw.trim().length >= 20) {
+            const cleaned = raw
+              .replace(/----------------Page \(\d+\) Break----------------/gi, "\n\n")
+              .replace(/\r\n/g, "\n")
+              .trim();
+            if (cleaned.length >= 20) {
+              resolve(cleaned);
+              return;
+            }
+          }
+
+          // Approach 2: Iterate Pages & Texts directly from parsed AST
+          let manualText = "";
+          for (const page of pdfData?.Pages || []) {
+            for (const item of page?.Texts || []) {
+              for (const r of item?.R || []) {
+                if (r?.T) {
+                  try {
+                    manualText += decodeURIComponent(r.T) + " ";
+                  } catch {
+                    manualText += r.T + " ";
+                  }
+                }
+              }
+            }
+            manualText += "\n";
+          }
+
+          resolve(manualText.trim());
+        } catch (e: any) {
+          console.warn("[parse-document] pdf2json post-process error:", e?.message);
+          resolve("");
+        }
+      });
+
+      pdfParser.parseBuffer(buffer);
+    } catch (err: any) {
+      console.warn("[parse-document] pdf2json init error:", err?.message);
+      resolve("");
+    }
+  });
+}
+
+/**
+ * Secondary PDF Extractor: pdf-parse
+ */
+async function extractWithPdfParse(buffer: Buffer): Promise<string> {
+  try {
+    // @ts-ignore
+    const pdfParse = require("pdf-parse");
+    const data = await pdfParse(buffer);
+    if (data && typeof data.text === "string" && data.text.trim().length >= 20) {
+      return data.text.trim();
+    }
+  } catch (err: any) {
+    console.warn("[parse-document] pdf-parse fallback skipped:", err?.message);
+  }
+  return "";
+}
+
+/**
+ * Tertiary PDF Extractor: Pure Node.js Flate stream decompressor
  */
 function extractTextFromPdfStream(buffer: Buffer): string {
   let fullText = "";
@@ -56,7 +141,6 @@ function extractTextFromPdfStream(buffer: Buffer): string {
       const block = btMatch[1];
       let lineText = "";
 
-      // Match (literal string) Tj or <hex string> Tj
       const tjRegex = /(?:\(([^()]*?(?:\\.[^()]*?)*)\)|<([0-9a-fA-F\s]+)>)\s*Tj/g;
       let tjMatch: RegExpExecArray | null;
       while ((tjMatch = tjRegex.exec(block)) !== null) {
@@ -67,7 +151,6 @@ function extractTextFromPdfStream(buffer: Buffer): string {
         }
       }
 
-      // Match [(...) -100 (...)] TJ
       const tjArrayRegex = /\[([\s\S]*?)\]\s*TJ/g;
       let arrMatch: RegExpExecArray | null;
       while ((arrMatch = tjArrayRegex.exec(block)) !== null) {
@@ -89,7 +172,6 @@ function extractTextFromPdfStream(buffer: Buffer): string {
         lineText += " ";
       }
 
-      // Match ' or " operators
       const quoteRegex = /(?:\(([^()]*?(?:\\.[^()]*?)*)\)|<([0-9a-fA-F\s]+)>)\s*['"]/g;
       let qMatch: RegExpExecArray | null;
       while ((qMatch = quoteRegex.exec(block)) !== null) {
@@ -110,6 +192,17 @@ function extractTextFromPdfStream(buffer: Buffer): string {
     .replace(/[ \t]+/g, " ")
     .replace(/\n\s*\n\s*\n/g, "\n\n")
     .trim();
+}
+
+/**
+ * Quaternary PDF Extractor: Plain printable ASCII string extraction
+ */
+function extractAsciiFallback(buffer: Buffer): string {
+  const content = buffer.toString("utf-8");
+  const words = content.match(/[A-Za-z0-9,.:;'"\-\(\)\/\s]{4,}/g);
+  if (!words) return "";
+  const joined = words.join(" ").replace(/\s+/g, " ").trim();
+  return joined.length >= 50 ? joined : "";
 }
 
 export async function POST(req: NextRequest) {
@@ -137,27 +230,42 @@ export async function POST(req: NextRequest) {
 
     // 1. PDF parsing
     if (fileName.endsWith(".pdf") || file.type === "application/pdf") {
-      // Primary attempt: pdf-parse
+      // Step 1: pdf2json (most robust on Vercel Node runtime)
       try {
-        // @ts-ignore
-        const pdfParser = require("pdf-parse/lib/pdf-parse.js");
-        const data = await pdfParser(buffer);
-        if (data && typeof data.text === "string" && data.text.trim().length >= 30) {
-          extractedText = data.text;
-        }
+        extractedText = await extractWithPdf2Json(buffer);
       } catch (err: any) {
-        console.warn("[parse-document] pdf-parse skipped/failed:", err?.message);
+        console.warn("[parse-document] pdf2json failed:", err?.message);
       }
 
-      // Robust fallback: Pure built-in stream text extractor
-      if (!extractedText || extractedText.trim().length < 30) {
+      // Step 2: pdf-parse fallback
+      if (!extractedText || extractedText.trim().length < 20) {
+        try {
+          const pdfParseText = await extractWithPdfParse(buffer);
+          if (pdfParseText && pdfParseText.trim().length >= 20) {
+            extractedText = pdfParseText;
+          }
+        } catch (err: any) {
+          console.warn("[parse-document] pdf-parse error:", err?.message);
+        }
+      }
+
+      // Step 3: Stream zlib fallback
+      if (!extractedText || extractedText.trim().length < 20) {
         try {
           const streamText = extractTextFromPdfStream(buffer);
-          if (streamText && streamText.trim().length >= 30) {
+          if (streamText && streamText.trim().length >= 20) {
             extractedText = streamText;
           }
         } catch (streamErr: any) {
-          console.error("[parse-document] Stream PDF parse error:", streamErr);
+          console.warn("[parse-document] Stream fallback error:", streamErr);
+        }
+      }
+
+      // Step 4: ASCII strings fallback
+      if (!extractedText || extractedText.trim().length < 20) {
+        const asciiText = extractAsciiFallback(buffer);
+        if (asciiText && asciiText.length >= 40) {
+          extractedText = asciiText;
         }
       }
 

@@ -19,7 +19,10 @@ const JOB_KEYWORDS = [
   "skills", "experience", "years", "education", "degree", "bachelor", "bachelors", "master", "b.tech", "be",
   "collaborate", "deliver", "build", "maintain", "design", "implement", "test", "deploy", "agile",
   "scrum", "team", "candidates", "applicant", "job", "position", "role", "company", "hiring", "apply",
-  "proficient", "knowledge", "understanding", "opportunity", "work", "stack", "tools"
+  "proficient", "knowledge", "understanding", "opportunity", "work", "stack", "tools",
+  // AI, Data, and System Engineering
+  "ai", "ml", "artificial intelligence", "machine learning", "deep learning", "llm", "llms", "rag",
+  "nlp", "prompt", "model", "models", "data", "pipeline", "platform", "system", "systems", "product"
 ];
 
 /**
